@@ -403,6 +403,16 @@ LABEL ubuntu_tftp
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
 
+LABEL sles
+    MENU LABEL Install ^SLES (HTTP)
+    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
+    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+
+LABEL sles_tftp
+    MENU LABEL Install SLES (TFTP)
+    KERNEL images/kernels/vmlinuz
+    APPEND initrd=images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+
 LABEL rescue
     MENU LABEL ^Rescue Mode (HTTP)
     KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
@@ -456,6 +466,16 @@ LABEL ubuntu_tftp
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
 
+LABEL sles
+    MENU LABEL Install ^SLES (HTTP)
+    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
+    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+
+LABEL sles_tftp
+    MENU LABEL Install SLES (TFTP)
+    KERNEL images/kernels/vmlinuz
+    APPEND initrd=images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+
 LABEL rescue
     MENU LABEL ^Rescue Mode (HTTP)
     KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
@@ -506,6 +526,16 @@ LABEL ubuntu_tftp
     MENU LABEL Install Ubuntu (TFTP Boot)
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
+
+LABEL sles_http
+    MENU LABEL Install ^SLES (HTTP Boot)
+    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
+    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+
+LABEL sles_tftp
+    MENU LABEL Install SLES (TFTP Boot)
+    KERNEL images/kernels/vmlinuz
+    APPEND initrd=images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
 
 LABEL rescue_http
     MENU LABEL Rescue Mode (HTTP)

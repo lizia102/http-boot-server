@@ -295,6 +295,8 @@ def update_grub_config(iso_filename, kernel_file=None, initrd_file=None):
     # 根据 ISO 类型生成不同的启动参数
     if 'ubuntu' in iso_lower or 'debian' in iso_lower:
         boot_args = f"ip=dhcp url=http://{server_ip}/boot/images/iso/{iso_filename} autoinstall"
+    elif 'sles' in iso_lower or 'suse' in iso_lower:
+        boot_args = f"install=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp"
     else:
         boot_args = f"inst.repo=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp"
 
