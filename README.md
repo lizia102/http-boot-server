@@ -22,7 +22,7 @@
 ### 1. 下载项目
 
 ```bash
-git clone <repository-url>
+git clone git@github.com:lizia102/http-boot-server.git
 cd http-boot-server
 ```
 

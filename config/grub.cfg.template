@@ -1,0 +1,71 @@
+# GRUB 配置文件 - HTTP Boot Server
+# 支持 UEFI TFTP 和 HTTP Boot
+
+set default=0
+set timeout=10
+
+# 设置颜色
+set menu_color_normal=cyan/blue
+set menu_color_highlight=white/blue
+
+# 获取服务器 IP（由 DHCP 提供）
+set net_default_interface=eth0
+
+# ============================================================================
+# UEFI 启动菜单
+# ============================================================================
+
+menuentry "Install RHEL (HTTP)" {
+    echo "Loading kernel via HTTP..."
+    linuxefi http://${next_server}/boot/images/kernels/vmlinuz inst.repo=http://${next_server}/boot/images/iso/ ip=dhcp
+    echo "Loading initial ramdisk via HTTP..."
+    initrdefi http://${next_server}/boot/images/initrds/initramfs.img
+    boot
+}
+
+menuentry "Install RHEL (TFTP)" {
+    echo "Loading kernel via TFTP..."
+    linux tftp://${next_server}/images/kernels/vmlinuz inst.repo=http://${next_server}/boot/images/iso/ ip=dhcp
+    echo "Loading initial ramdisk via TFTP..."
+    initrd tftp://${next_server}/images/initrds/initramfs.img
+    boot
+}
+
+menuentry "Rescue Mode (HTTP)" {
+    linuxefi http://${next_server}/boot/images/kernels/vmlinuz inst.repo=http://${next_server}/boot/images/iso/ ip=dhcp rescue
+    initrdefi http://${next_server}/boot/images/initrds/initramfs.img
+    boot
+}
+
+menuentry "Rescue Mode (TFTP)" {
+    linux tftp://${next_server}/images/kernels/vmlinuz inst.repo=http://${next_server}/boot/images/iso/ ip=dhcp rescue
+    initrd tftp://${next_server}/images/initrds/initramfs.img
+    boot
+}
+
+menuentry "Memory Test (memtest86+)" {
+    linuxefi http://${next_server}/boot/memtest86+.efi
+    boot
+}
+
+menuentry "Boot from Local Disk" {
+    set root=(hd0,1)
+    chainloader +1
+}
+
+menuentry "Reboot" {
+    reboot
+}
+
+menuentry "Shutdown" {
+    halt
+}
+
+# ============================================================================
+# 动态菜单项（自动检测可用镜像）
+# ============================================================================
+
+# 如果存在自定义菜单配置文件，加载它
+if [ -f ${prefix}/grub-custom.cfg ]; then
+    source ${prefix}/grub-custom.cfg
+fi

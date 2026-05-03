@@ -62,6 +62,18 @@ check_root() {
     fi
 }
 
+render_template() {
+    local template_file="$1"
+    local output_file="$2"
+    shift 2
+    local content
+    content=$(cat "${template_file}")
+    for var in "$@"; do
+        content=$(echo "${content}" | sed "s|\${${var}}|${!var}|g")
+    done
+    echo "${content}" > "${output_file}"
+}
+
 check_rhel() {
     if [[ ! -f /etc/redhat-release ]]; then
         log_error "此脚本仅适用于 RHEL/CentOS 系统"
@@ -216,96 +228,9 @@ generate_ssl_certificate() {
 configure_dhcp() {
     log_step "配置 DHCP 服务器"
 
-    cat > /etc/dhcp/dhcpd.conf << EOF
-# HTTP Boot Server - DHCP 配置
-# 自动生成于 $(date)
-# 支持 BIOS PXE (TFTP) 和 UEFI (TFTP + HTTP Boot)
-
-# 全局选项
-default-lease-time 600;
-max-lease-time 7200;
-authoritative;
-
-# PXE 启动配置
-allow booting;
-allow bootp;
-
-# 声明 Client System Architecture 选项（option 93）
-option arch code 93 = unsigned integer 16;
-
-# 子网配置
-subnet ${DHCP_SUBNET} netmask ${DHCP_NETMASK} {
-    range ${DHCP_RANGE_START} ${DHCP_RANGE_END};
-    option routers ${DHCP_GATEWAY};
-    option domain-name-servers ${DHCP_DNS};
-    option domain-name "local";
-
-    # 下一个服务器（TFTP 服务器地址）
-    next-server ${SERVER_IP};
-
-    # ============================================================================
-    # BIOS PXE 启动 (Architecture 00:00) - 使用 TFTP
-    # ============================================================================
-    if option arch = 00:00 {
-        # BIOS 系统通过 TFTP 下载 pxelinux.0
-        filename "pxelinux/pxelinux.0";
-    }
-    # ============================================================================
-    # UEFI x86_64 启动 (Architecture 00:07) - 支持 TFTP 和 HTTP
-    # ============================================================================
-    else if option arch = 00:07 {
-        # 方式一：TFTP（默认，兼容性更好）
-        filename "grub/shimx64.efi";
-    }
-    # ============================================================================
-    # UEFI x86 启动 (Architecture 00:06) - 支持 TFTP 和 HTTP
-    # ============================================================================
-    else if option arch = 00:06 {
-        # 方式一：TFTP（默认，兼容性更好）
-        filename "grub/shimia32.efi";
-    }
-    # ============================================================================
-    # ARM64 UEFI 启动 (Architecture 00:0b) - 支持 TFTP 和 HTTP
-    # ============================================================================
-    else if option arch = 00:0b {
-        # 方式一：TFTP（默认，兼容性更好）
-        filename "grub/grubaa64.efi";
-    }
-    # ============================================================================
-    # 默认使用 UEFI x86_64
-    # ============================================================================
-    else {
-        filename "grub/grubx64.efi";
-    }
-}
-
-# ============================================================================
-# 固定 IP 分配（可选）
-# 用于需要固定 IP 的 PXE 客户端
-# ============================================================================
-# host bios-client {
-#     hardware ethernet 00:11:22:33:44:55;
-#     fixed-address 192.168.1.10;
-#     option host-name "pxe-bios";
-# }
-
-# host uefi-client {
-#     hardware ethernet 66:77:88:99:aa:bb;
-#     fixed-address 192.168.1.11;
-#     option host-name "pxe-uefi";
-# }
-
-# ============================================================================
-# 类别定义（用于区分不同类型的客户端）
-# ============================================================================
-# class "bios-clients" {
-#     match if option arch = 00:00;
-# }
-
-# class "uefi-clients" {
-#     match if option arch = 00:07 or option arch = 00:06 or option arch = 00:0b;
-# }
-EOF
+    render_template "${SCRIPT_DIR}/config/dhcpd.conf.template" /etc/dhcp/dhcpd.conf \
+        DHCP_SUBNET DHCP_NETMASK DHCP_RANGE_START DHCP_RANGE_END \
+        DHCP_GATEWAY DHCP_DNS SERVER_IP
 
     log_info "DHCP 配置完成: /etc/dhcp/dhcpd.conf"
 }
@@ -347,38 +272,8 @@ EOF
 configure_grub() {
     log_step "配置 GRUB 引导文件"
 
-    # 生成 GRUB 配置文件
-    cat > "${BOOT_DIR}/grub/grub.cfg" << 'EOF'
-# GRUB 配置文件 - HTTP Boot Server
-# 自动检测可用的内核和 initrd
-
-set default=0
-set timeout=10
-
-# 设置颜色
-set menu_color_normal=cyan/blue
-set menu_color_highlight=white/blue
-
-# HTTP Boot 服务器菜单
-menuentry "Boot from HTTP Boot Server" {
-    echo "Loading kernel..."
-    linuxefi http://${next_server}/boot/images/kernels/vmlinuz inst.repo=http://${next_server}/boot/images/iso/ ip=dhcp
-    echo "Loading initial ramdisk..."
-    initrdefi http://${next_server}/boot/images/initrds/initramfs.img
-    boot
-}
-
-menuentry "Boot from Local Disk" {
-    set root=(hd0,1)
-    chainloader +1
-}
-
-menuentry "Rescue Mode" {
-    linuxefi http://${next_server}/boot/images/kernels/vmlinuz inst.repo=http://${next_server}/boot/images/iso/ ip=dhcp rescue
-    initrdefi http://${next_server}/boot/images/initrds/initramfs.img
-    boot
-}
-EOF
+    # 从模板生成 GRUB 配置文件（模板中使用 GRUB 的 ${next_server} 变量，无需 shell 替换）
+    cp "${SCRIPT_DIR}/config/grub.cfg.template" "${BOOT_DIR}/grub/grub.cfg"
 
     # 复制 GRUB EFI 文件（如果存在）
     if [[ -f /boot/efi/EFI/redhat/grubx64.efi ]]; then
@@ -571,132 +466,9 @@ configure_nginx() {
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
 
-    # 主配置文件
-    cat > /etc/nginx/nginx.conf << EOF
-# HTTP Boot Server - Nginx 配置
-# 支持 PXE/UEFI HTTP Boot
-
-user nginx;
-worker_processes auto;
-error_log /var/log/nginx/error.log;
-pid /run/nginx.pid;
-
-events {
-    worker_connections 1024;
-}
-
-http {
-    log_format main '\$remote_addr - \$remote_user [\$time_local] "\$request" '
-                    '\$status \$body_bytes_sent "\$http_referer" '
-                    '"\$http_user_agent" "\$http_x_forwarded_for"';
-
-    access_log /var/log/nginx/access.log main;
-
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 4096;
-    client_max_body_size 10G;
-
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    # HTTP 重定向到 HTTPS
-    server {
-        listen 80;
-        listen [::]:80;
-        server_name _;
-        return 301 https://\$host\$request_uri;
-    }
-
-    # HTTPS 配置 - 主要服务
-    server {
-        listen 443 ssl http2;
-        listen [::]:443 ssl http2;
-        server_name _;
-
-        ssl_certificate /etc/nginx/ssl/server.crt;
-        ssl_certificate_key /etc/nginx/ssl/server.key;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5;
-        ssl_prefer_server_ciphers on;
-
-        # 主页 - 重定向到上传界面
-        location / {
-            return 302 /upload/;
-        }
-
-        # 上传管理界面
-        location /upload/ {
-            proxy_pass http://127.0.0.1:8443/;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
-        }
-
-        # 上传 API
-        location /api/ {
-            proxy_pass http://127.0.0.1:8443/api/;
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto \$scheme;
-            client_max_body_size 10G;
-        }
-
-        # Boot 文件服务（HTTP/UEFI Boot）
-        location /boot/ {
-            alias /var/lib/http-boot-server/boot/;
-            autoindex on;
-            autoindex_exact_size off;
-            autoindex_localtime on;
-
-            # 为 EFI 文件设置正确的 MIME 类型
-            location ~* \\.efi\$ {
-                add_header Content-Type application/octet-stream;
-            }
-        }
-
-        # UEFI HTTP Boot 专用端点 - grubx64.efi
-        location = /grubx64.efi {
-            alias /var/lib/http-boot-server/boot/grub/grubx64.efi;
-            add_header Content-Type application/octet-stream;
-        }
-
-        # UEFI HTTP Boot 专用端点 - shimx64.efi
-        location = /shimx64.efi {
-            alias /var/lib/http-boot-server/boot/grub/shimx64.efi;
-            add_header Content-Type application/octet-stream;
-        }
-
-        # UEFI HTTP Boot 专用端点 - grubaa64.efi
-        location = /grubaa64.efi {
-            alias /var/lib/http-boot-server/boot/grub/grubaa64.efi;
-            add_header Content-Type application/octet-stream;
-        }
-
-        # GRUB 配置文件
-        location = /grub.cfg {
-            alias /var/lib/http-boot-server/boot/grub/grub.cfg;
-            add_header Content-Type text/plain;
-        }
-
-        # PXE 配置文件
-        location = /pxelinux.cfg/default {
-            alias /var/lib/http-boot-server/boot/pxelinux/pxelinux.cfg/default;
-            add_header Content-Type text/plain;
-        }
-
-        # 静态文件缓存
-        location ~* \\.(jpg|jpeg|png|gif|ico|css|js)\$ {
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-    }
-}
-EOF
+    # 从模板生成 Nginx 配置（仅替换 INSTALL_DIR，保留 nginx 自有的 $ 变量）
+    export INSTALL_DIR
+    envsubst '${INSTALL_DIR}' < "${SCRIPT_DIR}/config/nginx.conf" > /etc/nginx/nginx.conf
 
     # 创建 SSL 证书符号链接
     mkdir -p /etc/nginx/ssl

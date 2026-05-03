@@ -1,5 +1,5 @@
-# HTTP Boot Server - DHCP 配置模板
-# 使用前请根据实际网络环境修改配置
+# HTTP Boot Server - DHCP 配置
+# 支持 BIOS PXE (TFTP) 和 UEFI (TFTP + HTTP Boot)
 
 # 全局选项
 default-lease-time 600;
@@ -10,39 +10,44 @@ authoritative;
 allow booting;
 allow bootp;
 
+# 声明 Client System Architecture 选项（option 93）
+option arch code 93 = unsigned integer 16;
+
 # 子网配置
-subnet {{DHCP_SUBNET}} netmask {{DHCP_NETMASK}} {
-    range {{DHCP_RANGE_START}} {{DHCP_RANGE_END}};
-    option routers {{DHCP_GATEWAY}};
-    option domain-name-servers {{DHCP_DNS}};
+subnet ${DHCP_SUBNET} netmask ${DHCP_NETMASK} {
+    range ${DHCP_RANGE_START} ${DHCP_RANGE_END};
+    option routers ${DHCP_GATEWAY};
+    option domain-name-servers ${DHCP_DNS};
     option domain-name "local";
 
-    # PXE/HTTP Boot 配置
-    next-server {{SERVER_IP}};
+    # 下一个服务器（TFTP 服务器地址）
+    next-server ${SERVER_IP};
 
-    # BIOS PXE 启动
+    # BIOS PXE 启动 (Architecture 00:00) - 使用 TFTP
     if option arch = 00:00 {
         filename "pxelinux/pxelinux.0";
     }
-    # UEFI x86_64 启动
+    # UEFI x86_64 启动 (Architecture 00:07)
     else if option arch = 00:07 {
         filename "grub/shimx64.efi";
     }
-    # UEFI x86 启动
+    # UEFI x86 启动 (Architecture 00:06)
     else if option arch = 00:06 {
         filename "grub/shimia32.efi";
     }
-    # ARM64 UEFI 启动
+    # ARM64 UEFI 启动 (Architecture 00:0b)
     else if option arch = 00:0b {
         filename "grub/grubaa64.efi";
     }
+    # 默认使用 UEFI x86_64
     else {
         filename "grub/grubx64.efi";
     }
 }
 
 # 固定 IP 分配（可选）
-# host pxe-client {
-#     hardware ethernet xx:xx:xx:xx:xx:xx;
+# host bios-client {
+#     hardware ethernet 00:11:22:33:44:55;
 #     fixed-address 192.168.1.10;
+#     option host-name "pxe-bios";
 # }

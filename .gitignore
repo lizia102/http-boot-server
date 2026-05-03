@@ -1,0 +1,28 @@
+# SSL 证书（部署时自动生成）
+certs/*.crt
+certs/*.key
+certs/*.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 环境变量
+.env
+.env.local
+
+# 编辑器
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
+Thumbs.db
