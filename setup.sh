@@ -159,6 +159,8 @@ install_dependencies() {
             firewalld
             wget
             curl
+            p7zip
+            libarchive
         )
 
         for pkg in "${PACKAGES[@]}"; do
@@ -184,6 +186,8 @@ install_dependencies() {
             ufw
             wget
             curl
+            p7zip-full
+            libarchive-tools
         )
 
         for pkg in "${PACKAGES[@]}"; do
@@ -216,6 +220,7 @@ create_directories() {
         "${BOOT_DIR}/images/kernels"
         "${BOOT_DIR}/images/initrds"
         "${BOOT_DIR}/images/iso"
+        "${BOOT_DIR}/repos"
         "${CERT_DIR}"
         "${CONFIG_DIR}"
         "${LOG_DIR}"
@@ -405,13 +410,13 @@ LABEL ubuntu_tftp
 
 LABEL sles
     MENU LABEL Install ^SLES (HTTP)
-    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
-    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+    KERNEL http://${SERVER_IP}/boot/repos/sles/boot/x86_64/loader/linux
+    APPEND initrd=http://${SERVER_IP}/boot/repos/sles/boot/x86_64/loader/initrd install=http://${SERVER_IP}/boot/repos/sles/ ip=dhcp
 
 LABEL sles_tftp
     MENU LABEL Install SLES (TFTP)
-    KERNEL images/kernels/vmlinuz
-    APPEND initrd=images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+    KERNEL repos/sles/boot/x86_64/loader/linux
+    APPEND initrd=repos/sles/boot/x86_64/loader/initrd install=http://${SERVER_IP}/boot/repos/sles/ ip=dhcp
 
 LABEL rescue
     MENU LABEL ^Rescue Mode (HTTP)
@@ -468,13 +473,13 @@ LABEL ubuntu_tftp
 
 LABEL sles
     MENU LABEL Install ^SLES (HTTP)
-    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
-    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+    KERNEL http://${SERVER_IP}/boot/repos/sles/boot/x86_64/loader/linux
+    APPEND initrd=http://${SERVER_IP}/boot/repos/sles/boot/x86_64/loader/initrd install=http://${SERVER_IP}/boot/repos/sles/ ip=dhcp
 
 LABEL sles_tftp
     MENU LABEL Install SLES (TFTP)
-    KERNEL images/kernels/vmlinuz
-    APPEND initrd=images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+    KERNEL repos/sles/boot/x86_64/loader/linux
+    APPEND initrd=repos/sles/boot/x86_64/loader/initrd install=http://${SERVER_IP}/boot/repos/sles/ ip=dhcp
 
 LABEL rescue
     MENU LABEL ^Rescue Mode (HTTP)
@@ -529,13 +534,13 @@ LABEL ubuntu_tftp
 
 LABEL sles_http
     MENU LABEL Install ^SLES (HTTP Boot)
-    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
-    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+    KERNEL http://${SERVER_IP}/boot/repos/sles/boot/x86_64/loader/linux
+    APPEND initrd=http://${SERVER_IP}/boot/repos/sles/boot/x86_64/loader/initrd install=http://${SERVER_IP}/boot/repos/sles/ ip=dhcp
 
 LABEL sles_tftp
     MENU LABEL Install SLES (TFTP Boot)
-    KERNEL images/kernels/vmlinuz
-    APPEND initrd=images/initrds/initrd.img install=http://${SERVER_IP}/boot/images/iso/sles.iso ip=dhcp
+    KERNEL repos/sles/boot/x86_64/loader/linux
+    APPEND initrd=repos/sles/boot/x86_64/loader/initrd install=http://${SERVER_IP}/boot/repos/sles/ ip=dhcp
 
 LABEL rescue_http
     MENU LABEL Rescue Mode (HTTP)

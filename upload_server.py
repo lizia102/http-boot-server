@@ -5,9 +5,13 @@ HTTP Boot Server - 镜像上传管理服务
 """
 
 import json
+import logging
 import os
 import re
+import shutil
 import ssl
+import subprocess
+import threading
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file
 from werkzeug.utils import secure_filename
@@ -21,6 +25,9 @@ BOOT_DIR = os.path.join(INSTALL_DIR, 'boot')
 CERT_DIR = os.path.join(INSTALL_DIR, 'certs')
 UPLOAD_PORT = int(os.environ.get('UPLOAD_PORT', 8443))
 METADATA_FILE = os.path.join(BOOT_DIR, 'config', 'metadata.json')
+REPOS_DIR = os.path.join(BOOT_DIR, 'repos')
+
+logger = logging.getLogger(__name__)
 
 # 支持的文件类型
 ALLOWED_EXTENSIONS = {
@@ -83,6 +90,61 @@ def save_metadata(data):
     os.makedirs(os.path.dirname(METADATA_FILE), exist_ok=True)
     with open(METADATA_FILE, 'w') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+def extract_iso_repo(iso_filename):
+    """解压 ISO 到仓库目录（SLES/SUSE 需要）"""
+    iso_path = os.path.join(BOOT_DIR, 'images', 'iso', iso_filename)
+    repo_name = os.path.splitext(iso_filename)[0]
+    repo_dir = os.path.join(REPOS_DIR, repo_name)
+
+    if os.path.exists(repo_dir):
+        return repo_dir
+
+    os.makedirs(repo_dir, exist_ok=True)
+
+    # 尝试用 7z 解压
+    try:
+        result = subprocess.run(
+            ['7z', 'x', f'-o{repo_dir}', iso_path, '-y'],
+            capture_output=True, text=True, timeout=600
+        )
+        if result.returncode == 0:
+            logger.info(f"ISO 解压成功: {iso_filename} -> {repo_dir}")
+            return repo_dir
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # 回退到 bsdtar
+    try:
+        result = subprocess.run(
+            ['bsdtar', '-xf', iso_path, '-C', repo_dir],
+            capture_output=True, text=True, timeout=600
+        )
+        if result.returncode == 0:
+            logger.info(f"ISO 解压成功 (bsdtar): {iso_filename} -> {repo_dir}")
+            return repo_dir
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # 解压失败，清理空目录
+    shutil.rmtree(repo_dir, ignore_errors=True)
+    logger.error(f"ISO 解压失败: {iso_filename}，需要安装 p7zip-full 或 bsdtar")
+    return None
+
+def extract_iso_repo_async(iso_filename):
+    """后台线程解压 ISO"""
+    try:
+        extract_iso_repo(iso_filename)
+    except Exception as e:
+        logger.error(f"后台解压 ISO 失败: {e}")
+
+def cleanup_iso_repo(iso_filename):
+    """清理 ISO 解压的仓库目录"""
+    repo_name = os.path.splitext(iso_filename)[0]
+    repo_dir = os.path.join(REPOS_DIR, repo_name)
+    if os.path.exists(repo_dir):
+        shutil.rmtree(repo_dir, ignore_errors=True)
+        logger.info(f"已清理仓库目录: {repo_dir}")
 
 def list_images(subdir):
     """列出指定目录下的镜像文件"""
@@ -193,9 +255,10 @@ def delete_file():
 
     try:
         os.remove(filepath)
-        # ISO 文件：清理对应的 GRUB 条目
+        # ISO 文件：清理对应的 GRUB 条目和解压目录
         if file_type == 'iso':
             remove_grub_entry(safe_name)
+            cleanup_iso_repo(safe_name)
         # 内核/initrd 文件：清除默认设置（如果被设为默认）
         if file_type in ('kernels', 'initrds'):
             clear_default_if_deleted(file_type, safe_name)
@@ -292,19 +355,29 @@ def update_grub_config(iso_filename, kernel_file=None, initrd_file=None):
     kernel_path = f"http://{server_ip}/boot/images/kernels/{kernel_file}"
     initrd_path = f"http://{server_ip}/boot/images/initrds/{initrd_file}"
 
-    # 根据 ISO 类型生成不同的启动参数
+    # 根据 ISO 类型生成不同的启动参数和内核路径
     if 'ubuntu' in iso_lower or 'debian' in iso_lower:
         boot_args = f"ip=dhcp url=http://{server_ip}/boot/images/iso/{iso_filename} autoinstall"
+        entry_kernel = kernel_path
+        entry_initrd = initrd_path
     elif 'sles' in iso_lower or 'suse' in iso_lower:
-        boot_args = f"install=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp"
+        # SLES 需要解压后的仓库目录，使用 ISO 内自带的内核
+        repo_name = os.path.splitext(iso_filename)[0]
+        repo_url = f"http://{server_ip}/boot/repos/{repo_name}"
+        boot_args = f"install={repo_url} ip=dhcp"
+        entry_kernel = f"{repo_url}/boot/x86_64/loader/linux"
+        entry_initrd = f"{repo_url}/boot/x86_64/loader/initrd"
+        threading.Thread(target=extract_iso_repo_async, args=(iso_filename,), daemon=True).start()
     else:
         boot_args = f"inst.repo=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp"
+        entry_kernel = kernel_path
+        entry_initrd = initrd_path
 
     new_entry = f'''
 # <dynamic iso="{iso_filename}">
 menuentry "Install {iso_name}" {{
-    linuxefi {kernel_path} {boot_args}
-    initrdefi {initrd_path}
+    linuxefi {entry_kernel} {boot_args}
+    initrdefi {entry_initrd}
     boot
 }}
 # </dynamic>
@@ -399,6 +472,7 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(BOOT_DIR, 'images', 'kernels'), exist_ok=True)
     os.makedirs(os.path.join(BOOT_DIR, 'images', 'initrds'), exist_ok=True)
     os.makedirs(os.path.join(BOOT_DIR, 'images', 'iso'), exist_ok=True)
+    os.makedirs(os.path.join(BOOT_DIR, 'repos'), exist_ok=True)
 
     # SSL 上下文
     ssl_context = None

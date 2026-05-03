@@ -74,17 +74,17 @@ menuentry "Ubuntu Live (HTTP)" {
 
 menuentry "Install SLES (HTTP)" {
     echo "Loading SLES kernel via HTTP..."
-    linuxefi http://${next_server}/boot/images/kernels/vmlinuz install=http://${next_server}/boot/images/iso/sles.iso ip=dhcp
+    linuxefi http://${next_server}/boot/repos/sles/boot/x86_64/loader/linux install=http://${next_server}/boot/repos/sles/ ip=dhcp
     echo "Loading SLES initial ramdisk via HTTP..."
-    initrdefi http://${next_server}/boot/images/initrds/initrd.img
+    initrdefi http://${next_server}/boot/repos/sles/boot/x86_64/loader/initrd
     boot
 }
 
 menuentry "Install SLES (TFTP)" {
     echo "Loading SLES kernel via TFTP..."
-    linux tftp://${next_server}/images/kernels/vmlinuz install=http://${next_server}/boot/images/iso/sles.iso ip=dhcp
+    linux tftp://${next_server}/repos/sles/boot/x86_64/loader/linux install=http://${next_server}/boot/repos/sles/ ip=dhcp
     echo "Loading SLES initial ramdisk via TFTP..."
-    initrd tftp://${next_server}/images/initrds/initrd.img
+    initrd tftp://${next_server}/repos/sles/boot/x86_64/loader/initrd
     boot
 }
 
