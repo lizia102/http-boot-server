@@ -76,13 +76,10 @@ def list_images(subdir):
     if not os.path.exists(dir_path):
         return []
     files = []
-    allowed_exts = ALLOWED_EXTENSIONS.get(subdir, set())
     for f in os.listdir(dir_path):
         filepath = os.path.join(dir_path, f)
-        if os.path.isfile(filepath):
-            ext = f.rsplit('.', 1)[1].lower() if '.' in f else ''
-            if ext in allowed_exts:
-                files.append(get_file_info(filepath))
+        if os.path.isfile(filepath) and allowed_file(f, subdir):
+            files.append(get_file_info(filepath))
     return sorted(files, key=lambda x: x['modified'], reverse=True)
 
 @app.route('/')
@@ -218,6 +215,16 @@ def server_info():
         'grub_config': os.path.join(BOOT_DIR, 'grub', 'grub.cfg')
     })
 
+def find_boot_file(subdir):
+    """在指定目录中查找可用的启动文件，返回 HTTP 路径"""
+    dir_path = os.path.join(BOOT_DIR, 'images', subdir)
+    if not os.path.exists(dir_path):
+        return None
+    for f in sorted(os.listdir(dir_path)):
+        if os.path.isfile(os.path.join(dir_path, f)) and allowed_file(f, subdir):
+            return f
+    return None
+
 def update_grub_config(iso_filename):
     """更新 GRUB 配置以支持新上传的 ISO"""
     grub_config = os.path.join(BOOT_DIR, 'grub', 'grub.cfg')
@@ -234,20 +241,29 @@ def update_grub_config(iso_filename):
     server_ip = request.host.split(':')[0]
     iso_lower = iso_filename.lower()
 
+    # 查找实际可用的内核和 initrd 文件
+    kernel_file = find_boot_file('kernels')
+    initrd_file = find_boot_file('initrds')
+    if not kernel_file or not initrd_file:
+        return
+
+    kernel_path = f"http://{server_ip}/boot/images/kernels/{kernel_file}"
+    initrd_path = f"http://{server_ip}/boot/images/initrds/{initrd_file}"
+
     # 根据 ISO 类型生成不同的启动参数
     if 'ubuntu' in iso_lower or 'debian' in iso_lower:
         new_entry = f'''
 menuentry "Install {iso_name}" {{
-    linuxefi http://{server_ip}/boot/images/kernels/vmlinuz ip=dhcp url=http://{server_ip}/boot/images/iso/{iso_filename} autoinstall
-    initrdefi http://{server_ip}/boot/images/initrds/initrd.img
+    linuxefi {kernel_path} ip=dhcp url=http://{server_ip}/boot/images/iso/{iso_filename} autoinstall
+    initrdefi {initrd_path}
     boot
 }}
 '''
     else:
         new_entry = f'''
 menuentry "Install {iso_name}" {{
-    linuxefi http://{server_ip}/boot/images/kernels/vmlinuz inst.repo=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp
-    initrdefi http://{server_ip}/boot/images/initrds/initramfs.img
+    linuxefi {kernel_path} inst.repo=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp
+    initrdefi {initrd_path}
     boot
 }}
 '''

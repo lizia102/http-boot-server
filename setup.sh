@@ -558,9 +558,16 @@ configure_nginx() {
         cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
     fi
 
-    # 从模板生成 Nginx 配置（仅替换 INSTALL_DIR，保留 nginx 自有的 $ 变量）
+    # 根据发行版设置 nginx 用户
+    if [[ "${DISTRO_FAMILY}" == "rhel" ]]; then
+        export NGINX_USER="nginx"
+    else
+        export NGINX_USER="www-data"
+    fi
+
+    # 从模板生成 Nginx 配置（仅替换自定义变量，保留 nginx 自有的 $ 变量）
     export INSTALL_DIR
-    envsubst '${INSTALL_DIR}' < "${SCRIPT_DIR}/config/nginx.conf" > /etc/nginx/nginx.conf
+    envsubst '${INSTALL_DIR} ${NGINX_USER}' < "${SCRIPT_DIR}/config/nginx.conf" > /etc/nginx/nginx.conf
 
     # 创建 SSL 证书符号链接
     mkdir -p /etc/nginx/ssl

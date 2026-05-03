@@ -8,8 +8,8 @@ set timeout=10
 set menu_color_normal=cyan/blue
 set menu_color_highlight=white/blue
 
-# 获取服务器 IP（由 DHCP 提供）
-set net_default_interface=eth0
+# 服务器 IP 由 DHCP 的 next-server 选项提供（${next_server}）
+# 网络接口由 GRUB 自动检测，无需手动指定
 
 # ============================================================================
 # UEFI 启动菜单
