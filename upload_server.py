@@ -4,7 +4,9 @@ HTTP Boot Server - 镜像上传管理服务
 提供 Web 界面上传、删除、管理启动镜像
 """
 
+import json
 import os
+import re
 import ssl
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_file
@@ -18,6 +20,7 @@ INSTALL_DIR = os.environ.get('INSTALL_DIR', '/var/lib/http-boot-server')
 BOOT_DIR = os.path.join(INSTALL_DIR, 'boot')
 CERT_DIR = os.path.join(INSTALL_DIR, 'certs')
 UPLOAD_PORT = int(os.environ.get('UPLOAD_PORT', 8443))
+METADATA_FILE = os.path.join(BOOT_DIR, 'config', 'metadata.json')
 
 # 支持的文件类型
 ALLOWED_EXTENSIONS = {
@@ -68,6 +71,19 @@ def format_size(size_bytes):
         size_bytes /= 1024.0
     return f"{size_bytes:.1f} PB"
 
+def load_metadata():
+    """加载元数据（默认内核/initrd 等）"""
+    if os.path.exists(METADATA_FILE):
+        with open(METADATA_FILE, 'r') as f:
+            return json.load(f)
+    return {"defaults": {"kernel": None, "initrd": None}}
+
+def save_metadata(data):
+    """保存元数据"""
+    os.makedirs(os.path.dirname(METADATA_FILE), exist_ok=True)
+    with open(METADATA_FILE, 'w') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
 def list_images(subdir):
     """列出指定目录下的镜像文件"""
     if not validate_file_type(subdir):
@@ -88,11 +104,15 @@ def index():
     kernels = list_images('kernels')
     initrds = list_images('initrds')
     isos = list_images('iso')
+    metadata = load_metadata()
+    defaults = metadata.get('defaults', {})
     return render_template('index.html',
                          kernels=kernels,
                          initrds=initrds,
                          isos=isos,
-                         server_ip=request.host.split(':')[0])
+                         server_ip=request.host.split(':')[0],
+                         default_kernel=defaults.get('kernel'),
+                         default_initrd=defaults.get('initrd'))
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -102,6 +122,8 @@ def upload_file():
 
     file = request.files['file']
     file_type = request.form.get('type', 'kernels')
+    selected_kernel = request.form.get('kernel', '').strip() or None
+    selected_initrd = request.form.get('initrd', '').strip() or None
 
     if file.filename == '':
         return jsonify({'error': '没有选择文件'}), 400
@@ -133,7 +155,7 @@ def upload_file():
 
     # 如果是 ISO 文件，更新 GRUB 配置
     if file_type == 'iso':
-        update_grub_config(filename)
+        update_grub_config(filename, kernel_file=selected_kernel, initrd_file=selected_initrd)
 
     return jsonify({
         'success': True,
@@ -171,6 +193,12 @@ def delete_file():
 
     try:
         os.remove(filepath)
+        # ISO 文件：清理对应的 GRUB 条目
+        if file_type == 'iso':
+            remove_grub_entry(safe_name)
+        # 内核/initrd 文件：清除默认设置（如果被设为默认）
+        if file_type in ('kernels', 'initrds'):
+            clear_default_if_deleted(file_type, safe_name)
         return jsonify({'success': True, 'message': f'文件 {filename} 已删除'})
     except Exception as e:
         return jsonify({'error': f'删除失败: {str(e)}'}), 500
@@ -216,16 +244,27 @@ def server_info():
     })
 
 def find_boot_file(subdir):
-    """在指定目录中查找可用的启动文件，返回 HTTP 路径"""
+    """查找启动文件，优先使用配置的默认文件"""
     dir_path = os.path.join(BOOT_DIR, 'images', subdir)
     if not os.path.exists(dir_path):
         return None
+
+    # 优先使用默认文件
+    metadata = load_metadata()
+    default_key = subdir.rstrip('s')  # 'kernels' -> 'kernel', 'initrds' -> 'initrd'
+    default_file = metadata.get('defaults', {}).get(default_key)
+    if default_file:
+        default_path = os.path.join(dir_path, default_file)
+        if os.path.isfile(default_path) and allowed_file(default_file, subdir):
+            return default_file
+
+    # 回退：字母序第一个
     for f in sorted(os.listdir(dir_path)):
         if os.path.isfile(os.path.join(dir_path, f)) and allowed_file(f, subdir):
             return f
     return None
 
-def update_grub_config(iso_filename):
+def update_grub_config(iso_filename, kernel_file=None, initrd_file=None):
     """更新 GRUB 配置以支持新上传的 ISO"""
     grub_config = os.path.join(BOOT_DIR, 'grub', 'grub.cfg')
     if not os.path.exists(grub_config):
@@ -235,15 +274,18 @@ def update_grub_config(iso_filename):
         content = f.read()
 
     iso_name = os.path.splitext(iso_filename)[0]
-    if iso_name in content:
+    # 通过标记或名称检查重复
+    if f'# <dynamic iso="{iso_filename}">' in content or iso_name in content:
         return
 
     server_ip = request.host.split(':')[0]
     iso_lower = iso_filename.lower()
 
-    # 查找实际可用的内核和 initrd 文件
-    kernel_file = find_boot_file('kernels')
-    initrd_file = find_boot_file('initrds')
+    # 使用指定文件或查找默认文件
+    if not kernel_file:
+        kernel_file = find_boot_file('kernels')
+    if not initrd_file:
+        initrd_file = find_boot_file('initrds')
     if not kernel_file or not initrd_file:
         return
 
@@ -252,20 +294,18 @@ def update_grub_config(iso_filename):
 
     # 根据 ISO 类型生成不同的启动参数
     if 'ubuntu' in iso_lower or 'debian' in iso_lower:
-        new_entry = f'''
-menuentry "Install {iso_name}" {{
-    linuxefi {kernel_path} ip=dhcp url=http://{server_ip}/boot/images/iso/{iso_filename} autoinstall
-    initrdefi {initrd_path}
-    boot
-}}
-'''
+        boot_args = f"ip=dhcp url=http://{server_ip}/boot/images/iso/{iso_filename} autoinstall"
     else:
-        new_entry = f'''
+        boot_args = f"inst.repo=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp"
+
+    new_entry = f'''
+# <dynamic iso="{iso_filename}">
 menuentry "Install {iso_name}" {{
-    linuxefi {kernel_path} inst.repo=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp
+    linuxefi {kernel_path} {boot_args}
     initrdefi {initrd_path}
     boot
 }}
+# </dynamic>
 '''
 
     # 在第一个 menuentry 之前插入
@@ -278,6 +318,79 @@ menuentry "Install {iso_name}" {{
 
     with open(grub_config, 'w') as f:
         f.write(content)
+
+def remove_grub_entry(iso_filename):
+    """删除 ISO 对应的动态 GRUB 条目"""
+    grub_config = os.path.join(BOOT_DIR, 'grub', 'grub.cfg')
+    if not os.path.exists(grub_config):
+        return False
+
+    with open(grub_config, 'r') as f:
+        content = f.read()
+
+    pattern = r'\n# <dynamic iso="' + re.escape(iso_filename) + r'">\n.*?# </dynamic>\n'
+    new_content, count = re.subn(pattern, '\n', content, flags=re.DOTALL)
+
+    if count > 0:
+        with open(grub_config, 'w') as f:
+            f.write(new_content)
+        return True
+    return False
+
+def clear_default_if_deleted(file_type, filename):
+    """如果删除的文件是默认内核/initrd，清除默认设置"""
+    metadata = load_metadata()
+    defaults = metadata.get('defaults', {})
+    default_key = file_type.rstrip('s')  # 'kernels' -> 'kernel'
+    if defaults.get(default_key) == filename:
+        defaults[default_key] = None
+        save_metadata(metadata)
+
+@app.route('/api/defaults', methods=['GET', 'POST'])
+def manage_defaults():
+    """获取或设置默认内核/initrd"""
+    if request.method == 'GET':
+        return jsonify(load_metadata().get('defaults', {}))
+
+    data = request.get_json()
+    metadata = load_metadata()
+
+    if 'kernel' in data:
+        if data['kernel']:
+            kernel_path = os.path.join(BOOT_DIR, 'images', 'kernels', secure_filename(data['kernel']))
+            if not os.path.exists(kernel_path):
+                return jsonify({'error': '指定的内核文件不存在'}), 400
+        metadata['defaults']['kernel'] = data['kernel'] or None
+
+    if 'initrd' in data:
+        if data['initrd']:
+            initrd_path = os.path.join(BOOT_DIR, 'images', 'initrds', secure_filename(data['initrd']))
+            if not os.path.exists(initrd_path):
+                return jsonify({'error': '指定的 initrd 文件不存在'}), 400
+        metadata['defaults']['initrd'] = data['initrd'] or None
+
+    save_metadata(metadata)
+    return jsonify({'success': True, 'defaults': metadata['defaults']})
+
+@app.route('/api/grub-entries')
+def list_grub_entries():
+    """列出动态 GRUB 条目"""
+    grub_config = os.path.join(BOOT_DIR, 'grub', 'grub.cfg')
+    if not os.path.exists(grub_config):
+        return jsonify([])
+
+    with open(grub_config, 'r') as f:
+        content = f.read()
+
+    entries = []
+    pattern = r'# <dynamic iso="([^"]+)">\n(menuentry\s+"([^"]+)"\s*\{[^}]*\})\n# </dynamic>'
+    for match in re.finditer(pattern, content, re.DOTALL):
+        entries.append({
+            'iso': match.group(1),
+            'title': match.group(3),
+        })
+
+    return jsonify(entries)
 
 if __name__ == '__main__':
     # 创建必要的目录

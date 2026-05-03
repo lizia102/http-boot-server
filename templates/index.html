@@ -250,6 +250,32 @@
                              id="uploadProgress" style="width: 0%"></div>
                     </div>
                 </div>
+
+                <!-- 启动配置（仅 ISO 上传时显示） -->
+                <div id="bootConfigSection" style="display: none;">
+                    <hr>
+                    <h6><i class="bi bi-gear"></i> 启动配置 (GRUB)</h6>
+                    <p class="text-muted small">选择用于此 ISO 启动的内核和 initrd 文件（不选则自动使用默认值）</p>
+                    <div class="row mb-3">
+                        <div class="col-md-5">
+                            <label class="form-label">内核文件 (Kernel)</label>
+                            <select class="form-select" id="selectKernel">
+                                <option value="">-- 自动选择 --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label">初始化内存盘 (Initrd)</label>
+                            <select class="form-select" id="selectInitrd">
+                                <option value="">-- 自动选择 --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button class="btn btn-outline-warning btn-sm w-100" id="btnSetDefaults" title="将当前选择设为默认">
+                                <i class="bi bi-star"></i> 设为默认
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -265,7 +291,12 @@
                     <div class="file-item" data-filename="{{ file.name }}" data-type="kernels">
                         <i class="bi bi-file-earmark-binary file-icon"></i>
                         <div class="file-info">
-                            <div class="file-name">{{ file.name }}</div>
+                            <div class="file-name">
+                                {{ file.name }}
+                                {% if file.name == default_kernel %}
+                                <span class="badge bg-warning text-dark status-badge">默认</span>
+                                {% endif %}
+                            </div>
                             <div class="file-meta">
                                 {{ file.size_human }} | {{ file.modified }}
                             </div>
@@ -304,7 +335,12 @@
                     <div class="file-item" data-filename="{{ file.name }}" data-type="initrds">
                         <i class="bi bi-file-earmark-binary file-icon"></i>
                         <div class="file-info">
-                            <div class="file-name">{{ file.name }}</div>
+                            <div class="file-name">
+                                {{ file.name }}
+                                {% if file.name == default_initrd %}
+                                <span class="badge bg-warning text-dark status-badge">默认</span>
+                                {% endif %}
+                            </div>
                             <div class="file-meta">
                                 {{ file.size_human }} | {{ file.modified }}
                             </div>
@@ -433,7 +469,80 @@
             const allowedTypes = document.getElementById('allowedTypes');
             currentType = typeSelect.value;
             allowedTypes.textContent = fileTypeMap[currentType].join(', ');
+
+            // 显示/隐藏启动配置区块
+            const bootConfig = document.getElementById('bootConfigSection');
+            if (currentType === 'iso') {
+                bootConfig.style.display = 'block';
+                loadBootFileOptions();
+            } else {
+                bootConfig.style.display = 'none';
+            }
         }
+
+        // 加载内核/initrd 文件列表到下拉框
+        async function loadBootFileOptions() {
+            try {
+                const [kernelsRes, initrdsRes, defaultsRes] = await Promise.all([
+                    fetch('/api/files/kernels'),
+                    fetch('/api/files/initrds'),
+                    fetch('/api/defaults')
+                ]);
+                const kernels = await kernelsRes.json();
+                const initrds = await initrdsRes.json();
+                const defaults = await defaultsRes.json();
+
+                const kernelSelect = document.getElementById('selectKernel');
+                const initrdSelect = document.getElementById('selectInitrd');
+
+                kernelSelect.innerHTML = '<option value="">-- 自动选择 --</option>';
+                kernels.forEach(k => {
+                    const opt = document.createElement('option');
+                    opt.value = k.name;
+                    opt.textContent = k.name + ' (' + k.size_human + ')';
+                    if (k.name === defaults.kernel) opt.selected = true;
+                    kernelSelect.appendChild(opt);
+                });
+
+                initrdSelect.innerHTML = '<option value="">-- 自动选择 --</option>';
+                initrds.forEach(i => {
+                    const opt = document.createElement('option');
+                    opt.value = i.name;
+                    opt.textContent = i.name + ' (' + i.size_human + ')';
+                    if (i.name === defaults.initrd) opt.selected = true;
+                    initrdSelect.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('加载启动文件列表失败:', e);
+            }
+        }
+
+        // 设为默认按钮
+        document.getElementById('btnSetDefaults').addEventListener('click', async () => {
+            const kernel = document.getElementById('selectKernel').value;
+            const initrd = document.getElementById('selectInitrd').value;
+
+            if (!kernel && !initrd) {
+                showToast('请先选择内核或 initrd 文件', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/defaults', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kernel: kernel || null, initrd: initrd || null })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showToast('默认启动配置已更新', 'success');
+                } else {
+                    showToast(result.error, 'danger');
+                }
+            } catch (e) {
+                showToast('设置失败: ' + e.message, 'danger');
+            }
+        });
 
         // 显示 Toast 消息
         function showToast(message, type = 'success') {
@@ -458,6 +567,14 @@
             const formData = new FormData();
             formData.append('file', file);
             formData.append('type', currentType);
+
+            // ISO 上传时附带内核/initrd 选择
+            if (currentType === 'iso') {
+                const kernel = document.getElementById('selectKernel').value;
+                const initrd = document.getElementById('selectInitrd').value;
+                if (kernel) formData.append('kernel', kernel);
+                if (initrd) formData.append('initrd', initrd);
+            }
 
             const progressContainer = document.getElementById('progressContainer');
             const progress = document.getElementById('uploadProgress');
