@@ -419,8 +419,8 @@
     <script>
         // 文件类型映射
         const fileTypeMap = {
-            'kernels': ['vmlinuz', 'bzImage', 'vmlinux'],
-            'initrds': ['initrd', 'initramfs', 'initrd.img', 'initramfs.img'],
+            'kernels': ['vmlinuz', 'vmlinuz-*', 'bzImage', 'vmlinux'],
+            'initrds': ['initrd', 'initrd.img', 'initrd.img-*', 'initramfs', 'initramfs.img', 'initramfs-*.img'],
             'iso': ['iso']
         };
 

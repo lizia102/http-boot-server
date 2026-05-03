@@ -14,6 +14,7 @@
 ## 系统要求
 
 - RHEL 7/8/9 或兼容系统（CentOS、Rocky Linux 等）
+- Ubuntu 20.04+ 或 Debian 11+
 - Root 权限
 - 至少 10GB 可用磁盘空间
 
@@ -51,9 +52,15 @@ sudo ./setup.sh
 
 通过 Web 界面上传以下文件：
 
-1. **内核文件** (vmlinuz) - 从 RHEL 安装介质中提取
-2. **initrd 文件** (initramfs.img) - 从 RHEL 安装介质中提取
+**RHEL/CentOS:**
+1. **内核文件** (vmlinuz) - 从安装介质的 `images/pxeboot/` 提取
+2. **initrd 文件** (initramfs.img) - 从安装介质的 `images/pxeboot/` 提取
 3. **ISO 镜像** (可选) - 完整的安装镜像
+
+**Ubuntu/Debian:**
+1. **内核文件** (vmlinuz) - 从 ISO 的 `casper/` 目录提取
+2. **initrd 文件** (initrd) - 从 ISO 的 `casper/` 目录提取，重命名为 `initrd.img`
+3. **ISO 镜像** - Ubuntu Server ISO（启动菜单通过 `url=` 参数指定 ISO 路径）
 
 ## 目录结构
 
@@ -202,6 +209,19 @@ else if option arch = 00:0b {
    https://<服务器IP>/boot/grub/grub.cfg
    ```
 4. 保存并重启
+
+### Ubuntu/Debian 网络启动
+
+启动菜单中包含 Ubuntu 专用选项，需要提前准备以下文件：
+
+1. 从 Ubuntu ISO 的 `casper/` 目录提取 `vmlinuz` 和 `initrd`
+2. 上传到 Web 管理界面的对应目录
+3. 将 Ubuntu ISO 上传到 ISO 目录
+4. 客户端启动后选择 "Install Ubuntu" 菜单项
+
+Ubuntu 启动参数说明：
+- `url=` - 指定 ISO 镜像的 HTTP 地址
+- `autoinstall` - 启用自动化安装（需配合 cloud-init 配置）
 
 ### 测试 PXE/UEFI 启动
 

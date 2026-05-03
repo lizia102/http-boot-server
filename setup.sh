@@ -1,7 +1,7 @@
 #!/bin/bash
 # HTTP Boot Server - 一键部署脚本
 # 支持 PXE/UEFI 网络启动，Web 界面上传镜像，HTTPS 加密
-# 适用于 RHEL 7/8/9
+# 适用于 RHEL 7/8/9 和 Ubuntu/Debian
 
 set -e
 
@@ -74,17 +74,28 @@ render_template() {
     echo "${content}" > "${output_file}"
 }
 
-check_rhel() {
-    if [[ ! -f /etc/redhat-release ]]; then
-        log_error "此脚本仅适用于 RHEL/CentOS 系统"
-        exit 1
-    fi
-
-    RHEL_VERSION=$(rpm -E %{rhel})
-    log_info "检测到 RHEL 版本: ${RHEL_VERSION}"
-
-    if [[ ${RHEL_VERSION} -lt 7 ]]; then
-        log_error "需要 RHEL 7 或更高版本"
+check_os() {
+    # DISTRO_FAMILY: "rhel" 或 "debian"
+    # DHCP_SERVICE: DHCP 服务名
+    # TFTP_SERVICE: TFTP 服务管理方式
+    if [[ -f /etc/redhat-release ]]; then
+        DISTRO_FAMILY="rhel"
+        RHEL_VERSION=$(rpm -E %{rhel})
+        log_info "检测到 RHEL/CentOS 版本: ${RHEL_VERSION}"
+        if [[ ${RHEL_VERSION} -lt 7 ]]; then
+            log_error "需要 RHEL 7 或更高版本"
+            exit 1
+        fi
+        DHCP_SERVICE="dhcpd"
+        TFTP_SERVICE="xinetd"
+    elif [[ -f /etc/debian_version ]] || command -v apt-get &>/dev/null; then
+        DISTRO_FAMILY="debian"
+        DEBIAN_VERSION=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
+        log_info "检测到 Ubuntu/Debian 版本: ${DEBIAN_VERSION}"
+        DHCP_SERVICE="isc-dhcp-server"
+        TFTP_SERVICE="tftpd-hpa"
+    else
+        log_error "不支持的系统，需要 RHEL/CentOS 7+ 或 Ubuntu/Debian"
         exit 1
     fi
 }
@@ -130,34 +141,60 @@ detect_network() {
 install_dependencies() {
     log_step "安装依赖包"
 
-    # 启用 EPEL 仓库（如果需要）
-    if ! rpm -q epel-release &>/dev/null; then
-        log_info "安装 EPEL 仓库..."
-        yum install -y epel-release || dnf install -y epel-release
-    fi
-
-    # 安装必要软件包
-    PACKAGES=(
-        dhcp-server
-        tftp-server
-        xinetd
-        nginx
-        python3
-        python3-pip
-        openssl
-        firewalld
-        wget
-        curl
-    )
-
-    for pkg in "${PACKAGES[@]}"; do
-        if ! rpm -q "${pkg}" &>/dev/null; then
-            log_info "安装 ${pkg}..."
-            yum install -y "${pkg}" || dnf install -y "${pkg}"
-        else
-            log_info "${pkg} 已安装"
+    if [[ "${DISTRO_FAMILY}" == "rhel" ]]; then
+        # 启用 EPEL 仓库（如果需要）
+        if ! rpm -q epel-release &>/dev/null; then
+            log_info "安装 EPEL 仓库..."
+            yum install -y epel-release || dnf install -y epel-release
         fi
-    done
+
+        PACKAGES=(
+            dhcp-server
+            tftp-server
+            xinetd
+            nginx
+            python3
+            python3-pip
+            openssl
+            firewalld
+            wget
+            curl
+        )
+
+        for pkg in "${PACKAGES[@]}"; do
+            if ! rpm -q "${pkg}" &>/dev/null; then
+                log_info "安装 ${pkg}..."
+                yum install -y "${pkg}" || dnf install -y "${pkg}"
+            else
+                log_info "${pkg} 已安装"
+            fi
+        done
+    else
+        log_info "更新软件包索引..."
+        apt-get update -qq
+
+        PACKAGES=(
+            isc-dhcp-server
+            tftpd-hpa
+            tftp-hpa
+            nginx
+            python3
+            python3-pip
+            openssl
+            ufw
+            wget
+            curl
+        )
+
+        for pkg in "${PACKAGES[@]}"; do
+            if dpkg -s "${pkg}" &>/dev/null; then
+                log_info "${pkg} 已安装"
+            else
+                log_info "安装 ${pkg}..."
+                apt-get install -y -qq "${pkg}"
+            fi
+        done
+    fi
 
     # 安装 Python Flask
     log_info "安装 Python Flask..."
@@ -241,13 +278,14 @@ configure_dhcp() {
 configure_tftp() {
     log_step "配置 TFTP 服务器"
 
-    # 备份原配置
-    if [[ -f /etc/xinetd.d/tftp ]]; then
-        cp /etc/xinetd.d/tftp /etc/xinetd.d/tftp.bak
-    fi
+    if [[ "${DISTRO_FAMILY}" == "rhel" ]]; then
+        # 备份原配置
+        if [[ -f /etc/xinetd.d/tftp ]]; then
+            cp /etc/xinetd.d/tftp /etc/xinetd.d/tftp.bak
+        fi
 
-    # 配置 xinetd
-    cat > /etc/xinetd.d/tftp << EOF
+        # 配置 xinetd
+        cat > /etc/xinetd.d/tftp << EOF
 service tftp
 {
     socket_type = dgram
@@ -262,6 +300,15 @@ service tftp
     flags = IPv4
 }
 EOF
+    else
+        # Ubuntu/Debian: tftpd-hpa
+        cat > /etc/default/tftpd-hpa << EOF
+TFTP_USERNAME="tftp"
+TFTP_DIRECTORY="${BOOT_DIR}"
+TFTP_ADDRESS="0.0.0.0:69"
+TFTP_OPTIONS="--secure --create"
+EOF
+    fi
 
     log_info "TFTP 配置完成"
 }
@@ -275,20 +322,35 @@ configure_grub() {
     # 从模板生成 GRUB 配置文件（模板中使用 GRUB 的 ${next_server} 变量，无需 shell 替换）
     cp "${SCRIPT_DIR}/config/grub.cfg.template" "${BOOT_DIR}/grub/grub.cfg"
 
-    # 复制 GRUB EFI 文件（如果存在）
-    if [[ -f /boot/efi/EFI/redhat/grubx64.efi ]]; then
-        cp /boot/efi/EFI/redhat/grubx64.efi "${BOOT_DIR}/grub/"
-    elif [[ -f /boot/efi/EFI/centos/grubx64.efi ]]; then
-        cp /boot/efi/EFI/centos/grubx64.efi "${BOOT_DIR}/grub/"
-    else
-        log_warn "未找到 GRUB EFI 文件，请手动复制到 ${BOOT_DIR}/grub/"
-    fi
+    # 复制 GRUB EFI 文件
+    local efi_copied=false
+    for efi_path in \
+        /boot/efi/EFI/redhat/grubx64.efi \
+        /boot/efi/EFI/centos/grubx64.efi \
+        /boot/efi/EFI/ubuntu/grubx64.efi \
+        /boot/efi/EFI/debian/grubx64.efi \
+        /usr/lib/grub/x86_64-efi/monolithic/grubx64.efi; do
+        if [[ -f "${efi_path}" ]]; then
+            cp "${efi_path}" "${BOOT_DIR}/grub/"
+            efi_copied=true
+            break
+        fi
+    done
 
-    # 复制 shim 文件（如果存在）
-    if [[ -f /boot/efi/EFI/redhat/shimx64.efi ]]; then
-        cp /boot/efi/EFI/redhat/shimx64.efi "${BOOT_DIR}/grub/"
-    elif [[ -f /boot/efi/EFI/centos/shimx64.efi ]]; then
-        cp /boot/efi/EFI/centos/shimx64.efi "${BOOT_DIR}/grub/"
+    # 复制 shim 文件
+    for shim_path in \
+        /boot/efi/EFI/redhat/shimx64.efi \
+        /boot/efi/EFI/centos/shimx64.efi \
+        /boot/efi/EFI/ubuntu/shimx64.efi \
+        /boot/efi/EFI/debian/shimx64.efi; do
+        if [[ -f "${shim_path}" ]]; then
+            cp "${shim_path}" "${BOOT_DIR}/grub/"
+            break
+        fi
+    done
+
+    if [[ "${efi_copied}" == false ]]; then
+        log_warn "未找到 GRUB EFI 文件，请手动复制到 ${BOOT_DIR}/grub/"
     fi
 
     log_info "GRUB 配置完成"
@@ -322,14 +384,24 @@ LABEL local
     LOCALBOOT 0
 
 LABEL linux
-    MENU LABEL ^Install RHEL from HTTP Boot Server
+    MENU LABEL ^Install RHEL (HTTP)
     KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
     APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp
 
 LABEL linux_tftp
-    MENU LABEL Install RHEL via ^TFTP
+    MENU LABEL Install RHEL (TFTP)
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp
+
+LABEL ubuntu
+    MENU LABEL Install ^Ubuntu (HTTP)
+    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
+    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
+
+LABEL ubuntu_tftp
+    MENU LABEL Install Ubuntu (TFTP)
+    KERNEL images/kernels/vmlinuz
+    APPEND initrd=images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
 
 LABEL rescue
     MENU LABEL ^Rescue Mode (HTTP)
@@ -337,7 +409,7 @@ LABEL rescue
     APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp rescue
 
 LABEL rescue_tftp
-    MENU LABEL Rescue Mode (^TFTP)
+    MENU LABEL Rescue Mode (TFTP)
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp rescue
 
@@ -370,9 +442,19 @@ LABEL install
     APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp
 
 LABEL install_tftp
-    MENU LABEL Install RHEL (^TFTP)
+    MENU LABEL Install RHEL (TFTP)
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp
+
+LABEL ubuntu
+    MENU LABEL Install ^Ubuntu (HTTP)
+    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
+    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
+
+LABEL ubuntu_tftp
+    MENU LABEL Install Ubuntu (TFTP)
+    KERNEL images/kernels/vmlinuz
+    APPEND initrd=images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
 
 LABEL rescue
     MENU LABEL ^Rescue Mode (HTTP)
@@ -380,7 +462,7 @@ LABEL rescue
     APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp rescue
 
 LABEL rescue_tftp
-    MENU LABEL Rescue Mode (^TFTP)
+    MENU LABEL Rescue Mode (TFTP)
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp rescue
 
@@ -411,17 +493,27 @@ LABEL install_http
     APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp
 
 LABEL install_tftp
-    MENU LABEL Install RHEL (^TFTP Boot)
+    MENU LABEL Install RHEL (TFTP Boot)
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp
 
+LABEL ubuntu_http
+    MENU LABEL Install ^Ubuntu (HTTP Boot)
+    KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
+    APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
+
+LABEL ubuntu_tftp
+    MENU LABEL Install Ubuntu (TFTP Boot)
+    KERNEL images/kernels/vmlinuz
+    APPEND initrd=images/initrds/initrd.img ip=dhcp url=http://${SERVER_IP}/boot/images/iso/ubuntu.iso autoinstall
+
 LABEL rescue_http
-    MENU LABEL Rescue Mode (^HTTP)
+    MENU LABEL Rescue Mode (HTTP)
     KERNEL http://${SERVER_IP}/boot/images/kernels/vmlinuz
     APPEND initrd=http://${SERVER_IP}/boot/images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp rescue
 
 LABEL rescue_tftp
-    MENU LABEL Rescue Mode (^TFTP)
+    MENU LABEL Rescue Mode (TFTP)
     KERNEL images/kernels/vmlinuz
     APPEND initrd=images/initrds/initramfs.img inst.repo=http://${SERVER_IP}/boot/images/iso/ ip=dhcp rescue
 
@@ -519,19 +611,24 @@ EOF
 configure_firewall() {
     log_step "配置防火墙"
 
-    # 启动 firewalld
-    systemctl enable --now firewalld
-
-    # 开放端口
-    firewall-cmd --permanent --add-service=http
-    firewall-cmd --permanent --add-service=https
-    firewall-cmd --permanent --add-port=69/udp    # TFTP
-    firewall-cmd --permanent --add-port=67/udp    # DHCP
-    firewall-cmd --permanent --add-port=68/udp    # DHCP
-    firewall-cmd --permanent --add-port=8443/tcp  # Upload Service
-
-    # 重新加载防火墙
-    firewall-cmd --reload
+    if [[ "${DISTRO_FAMILY}" == "rhel" ]]; then
+        systemctl enable --now firewalld
+        firewall-cmd --permanent --add-service=http
+        firewall-cmd --permanent --add-service=https
+        firewall-cmd --permanent --add-port=69/udp
+        firewall-cmd --permanent --add-port=67/udp
+        firewall-cmd --permanent --add-port=68/udp
+        firewall-cmd --permanent --add-port=8443/tcp
+        firewall-cmd --reload
+    else
+        ufw allow http
+        ufw allow https
+        ufw allow 69/udp
+        ufw allow 67/udp
+        ufw allow 68/udp
+        ufw allow 8443/tcp
+        ufw --force enable
+    fi
 
     log_info "防火墙配置完成"
 }
@@ -544,13 +641,13 @@ start_services() {
 
     # 启动 TFTP
     log_info "启动 TFTP 服务..."
-    systemctl enable --now xinetd
-    systemctl restart xinetd
+    systemctl enable --now "${TFTP_SERVICE}"
+    systemctl restart "${TFTP_SERVICE}"
 
     # 启动 DHCP
     log_info "启动 DHCP 服务..."
-    systemctl enable --now dhcpd
-    systemctl restart dhcpd
+    systemctl enable --now "${DHCP_SERVICE}"
+    systemctl restart "${DHCP_SERVICE}"
 
     # 启动 Nginx
     log_info "启动 Nginx 服务..."
@@ -607,8 +704,8 @@ show_deployment_info() {
     echo -e "  ISO 文件: ${BLUE}${BOOT_DIR}/images/iso/${NC}"
     echo ""
     echo -e "服务管理:"
-    echo -e "  DHCP: ${BLUE}systemctl {start|stop|restart|status} dhcpd${NC}"
-    echo -e "  TFTP: ${BLUE}systemctl {start|stop|restart|status} xinetd${NC}"
+    echo -e "  DHCP: ${BLUE}systemctl {start|stop|restart|status} ${DHCP_SERVICE}${NC}"
+    echo -e "  TFTP: ${BLUE}systemctl {start|stop|restart|status} ${TFTP_SERVICE}${NC}"
     echo -e "  Nginx: ${BLUE}systemctl {start|stop|restart|status} nginx${NC}"
     echo -e "  Upload: ${BLUE}systemctl {start|stop|restart|status} http-boot-upload${NC}"
     echo ""
@@ -640,7 +737,7 @@ main() {
     check_root
 
     # 检查系统
-    check_rhel
+    check_os
 
     # 检测网络
     detect_network

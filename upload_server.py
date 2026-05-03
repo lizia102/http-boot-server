@@ -28,10 +28,23 @@ ALLOWED_EXTENSIONS = {
 
 def allowed_file(filename, file_type):
     """检查文件是否允许上传"""
-    if '.' not in filename:
-        return False
-    ext = filename.rsplit('.', 1)[1].lower()
-    return ext in ALLOWED_EXTENSIONS.get(file_type, set())
+    allowed = ALLOWED_EXTENSIONS.get(file_type, set())
+    # 扩展名匹配：vmlinuz、initrd.img、iso 等
+    if '.' in filename:
+        ext = filename.rsplit('.', 1)[1].lower()
+        if ext in allowed:
+            return True
+        # 处理 .img-5.15.0-generic 这类 Ubuntu 命名
+        for aext in allowed:
+            if ext.startswith(aext):
+                return True
+    # 前缀匹配：处理 vmlinuz-5.15.0-generic 等无标准扩展名的内核文件
+    basename = filename.lower()
+    if file_type == 'kernels' and basename.startswith('vmlinuz'):
+        return True
+    if file_type == 'initrds' and (basename.startswith('initrd') or basename.startswith('initramfs')):
+        return True
+    return False
 
 def validate_file_type(file_type):
     """校验 file_type 是否合法，防止路径穿越"""
@@ -219,9 +232,21 @@ def update_grub_config(iso_filename):
         return
 
     server_ip = request.host.split(':')[0]
-    new_entry = f'''
+    iso_lower = iso_filename.lower()
+
+    # 根据 ISO 类型生成不同的启动参数
+    if 'ubuntu' in iso_lower or 'debian' in iso_lower:
+        new_entry = f'''
 menuentry "Install {iso_name}" {{
-    linuxefi http://{server_ip}/boot/images/kernels/vmlinuz inst.http=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp
+    linuxefi http://{server_ip}/boot/images/kernels/vmlinuz ip=dhcp url=http://{server_ip}/boot/images/iso/{iso_filename} autoinstall
+    initrdefi http://{server_ip}/boot/images/initrds/initrd.img
+    boot
+}}
+'''
+    else:
+        new_entry = f'''
+menuentry "Install {iso_name}" {{
+    linuxefi http://{server_ip}/boot/images/kernels/vmlinuz inst.repo=http://{server_ip}/boot/images/iso/{iso_filename} ip=dhcp
     initrdefi http://{server_ip}/boot/images/initrds/initramfs.img
     boot
 }}

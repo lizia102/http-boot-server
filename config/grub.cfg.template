@@ -48,6 +48,29 @@ menuentry "Memory Test (memtest86+)" {
     boot
 }
 
+menuentry "Install Ubuntu (HTTP)" {
+    echo "Loading Ubuntu kernel via HTTP..."
+    linuxefi http://${next_server}/boot/images/kernels/vmlinuz ip=dhcp url=http://${next_server}/boot/images/iso/ubuntu.iso autoinstall
+    echo "Loading Ubuntu initial ramdisk via HTTP..."
+    initrdefi http://${next_server}/boot/images/initrds/initrd.img
+    boot
+}
+
+menuentry "Install Ubuntu (TFTP)" {
+    echo "Loading Ubuntu kernel via TFTP..."
+    linux tftp://${next_server}/images/kernels/vmlinuz ip=dhcp url=http://${next_server}/boot/images/iso/ubuntu.iso autoinstall
+    echo "Loading Ubuntu initial ramdisk via TFTP..."
+    initrd tftp://${next_server}/images/initrds/initrd.img
+    boot
+}
+
+menuentry "Ubuntu Live (HTTP)" {
+    echo "Loading Ubuntu live kernel..."
+    linuxefi http://${next_server}/boot/images/kernels/vmlinuz ip=dhcp boot=casper netboot=url url=http://${next_server}/boot/images/iso/ubuntu.iso
+    initrdefi http://${next_server}/boot/images/initrds/initrd.img
+    boot
+}
+
 menuentry "Boot from Local Disk" {
     set root=(hd0,1)
     chainloader +1
