@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Boot Server - 镜像管理</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #0d6efd;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            padding-top: 20px;
+        }
+
+        .card {
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            margin-bottom: 20px;
+        }
+
+        .card-header {
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: 500;
+        }
+
+        .upload-zone {
+            border: 2px dashed #dee2e6;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background-color: #fff;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--primary-color);
+            background-color: #f8f9fa;
+        }
+
+        .upload-zone.dragover {
+            border-color: var(--success-color);
+            background-color: #d1e7dd;
+        }
+
+        .upload-zone i {
+            font-size: 48px;
+            color: #6c757d;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .file-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-icon {
+            font-size: 24px;
+            margin-right: 15px;
+            color: #6c757d;
+        }
+
+        .file-info {
+            flex: 1;
+        }
+
+        .file-name {
+            font-weight: 500;
+            word-break: break-all;
+        }
+
+        .file-meta {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 5px;
+        }
+
+        .progress-container {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 3px 8px;
+        }
+
+        .server-info {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .server-info h5 {
+            margin-bottom: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+        }
+
+        .boot-instructions {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .boot-instructions h6 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .boot-instructions code {
+            background-color: rgba(0,0,0,0.1);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .boot-section {
+            background-color: #e7f1ff;
+            border: 1px solid #0d6efd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .boot-section.bios {
+            background-color: #d1e7dd;
+            border-color: #198754;
+        }
+
+        .boot-section.uefi {
+            background-color: #cff4fc;
+            border-color: #0dcaf0;
+        }
+
+        .boot-section h6 {
+            margin-bottom: 10px;
+        }
+
+        .boot-section.bios h6 {
+            color: #0f5132;
+        }
+
+        .boot-section.uefi h6 {
+            color: #055160;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 服务器信息 -->
+        <div class="server-info">
+            <h5><i class="bi bi-server"></i> HTTP Boot Server</h5>
+            <div class="info-item">
+                <span>服务器 IP:</span>
+                <strong>{{ server_ip }}</strong>
+            </div>
+            <div class="info-item">
+                <span>HTTPS 地址:</span>
+                <strong>https://{{ server_ip }}</strong>
+            </div>
+            <div class="info-item">
+                <span>Boot 服务:</span>
+                <strong>https://{{ server_ip }}/boot/</strong>
+            </div>
+        </div>
+
+        <!-- 上传区域 -->
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-cloud-upload"></i> 上传镜像
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">镜像类型</label>
+                        <select class="form-select" id="uploadType">
+                            <option value="kernels">内核文件 (vmlinuz)</option>
+                            <option value="initrds">初始化内存盘 (initrd/initramfs)</option>
+                            <option value="iso">ISO 镜像</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="upload-zone" id="uploadZone">
+                    <i class="bi bi-cloud-arrow-up"></i>
+                    <h5>拖拽文件到此处或点击选择</h5>
+                    <p class="text-muted">支持的文件类型:
+                        <span id="allowedTypes">vmlinuz, bzImage</span>
+                    </p>
+                    <input type="file" class="file-input" id="fileInput" multiple>
+                </div>
+
+                <div class="progress-container" id="progressContainer">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span id="uploadFileName">上传中...</span>
+                        <span id="uploadPercent">0%</span>
+                    </div>
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                             id="uploadProgress" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 内核文件列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-cpu"></i> 内核文件 (Kernels)</span>
+                <span class="badge bg-light text-dark">{{ kernels|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="file-list" id="kernelList">
+                    {% for file in kernels %}
+                    <div class="file-item" data-filename="{{ file.name }}" data-type="kernels">
+                        <i class="bi bi-file-earmark-binary file-icon"></i>
+                        <div class="file-info">
+                            <div class="file-name">{{ file.name }}</div>
+                            <div class="file-meta">
+                                {{ file.size_human }} | {{ file.modified }}
+                            </div>
+                        </div>
+                        <div class="file-actions">
+                            <a href="/api/download/kernels/{{ file.name }}"
+                               class="btn btn-sm btn-outline-primary" title="下载">
+                                <i class="bi bi-download"></i>
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger delete-btn"
+                                    data-filename="{{ file.name }}" data-type="kernels" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% if not kernels %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox" style="font-size: 48px;"></i>
+                        <p>暂无内核文件</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- initrd 文件列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-box"></i> 初始化内存盘 (Initrd)</span>
+                <span class="badge bg-light text-dark">{{ initrds|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="file-list" id="initrdList">
+                    {% for file in initrds %}
+                    <div class="file-item" data-filename="{{ file.name }}" data-type="initrds">
+                        <i class="bi bi-file-earmark-binary file-icon"></i>
+                        <div class="file-info">
+                            <div class="file-name">{{ file.name }}</div>
+                            <div class="file-meta">
+                                {{ file.size_human }} | {{ file.modified }}
+                            </div>
+                        </div>
+                        <div class="file-actions">
+                            <a href="/api/download/initrds/{{ file.name }}"
+                               class="btn btn-sm btn-outline-primary" title="下载">
+                                <i class="bi bi-download"></i>
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger delete-btn"
+                                    data-filename="{{ file.name }}" data-type="initrds" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% if not initrds %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox" style="font-size: 48px;"></i>
+                        <p>暂无 initrd 文件</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- ISO 镜像列表 -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-disc"></i> ISO 镜像</span>
+                <span class="badge bg-light text-dark">{{ isos|length }}</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="file-list" id="isoList">
+                    {% for file in isos %}
+                    <div class="file-item" data-filename="{{ file.name }}" data-type="iso">
+                        <i class="bi bi-disc file-icon"></i>
+                        <div class="file-info">
+                            <div class="file-name">{{ file.name }}</div>
+                            <div class="file-meta">
+                                {{ file.size_human }} | {{ file.modified }}
+                            </div>
+                        </div>
+                        <div class="file-actions">
+                            <a href="/api/download/iso/{{ file.name }}"
+                               class="btn btn-sm btn-outline-primary" title="下载">
+                                <i class="bi bi-download"></i>
+                            </a>
+                            <button class="btn btn-sm btn-outline-danger delete-btn"
+                                    data-filename="{{ file.name }}" data-type="iso" title="删除">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% if not isos %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox" style="font-size: 48px;"></i>
+                        <p>暂无 ISO 镜像</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 启动说明 -->
+        <div class="boot-instructions">
+            <h6><i class="bi bi-info-circle"></i> PXE/UEFI 启动说明</h6>
+            <p class="mb-2">客户端通过网络启动时，DHCP 会自动根据客户端架构提供对应的引导文件：</p>
+
+            <div class="boot-section bios">
+                <h6><i class="bi bi-pc-display"></i> BIOS PXE 启动</h6>
+                <ul class="mb-2">
+                    <li><strong>引导文件:</strong> <code>pxelinux/pxelinux.0</code></li>
+                    <li><strong>TFTP 地址:</strong> <code>tftp://{{ server_ip }}/pxelinux/pxelinux.0</code></li>
+                    <li><strong>配置文件:</strong> <code>pxelinux/pxelinux.cfg/default</code></li>
+                </ul>
+                <p class="mb-0 small">适用于传统 BIOS 系统，通过 TFTP 下载引导文件</p>
+            </div>
+
+            <div class="boot-section uefi">
+                <h6><i class="bi bi-laptop"></i> UEFI 启动 (TFTP + HTTP)</h6>
+                <ul class="mb-2">
+                    <li><strong>x86_64 引导:</strong> <code>grub/shimx64.efi</code> (推荐)</li>
+                    <li><strong>x86_64 备用:</strong> <code>grub/grubx64.efi</code></li>
+                    <li><strong>x86 引导:</strong> <code>grub/shimia32.efi</code></li>
+                    <li><strong>ARM64 引导:</strong> <code>grub/grubaa64.efi</code></li>
+                    <li><strong>TFTP 地址:</strong> <code>tftp://{{ server_ip }}/grub/grub.cfg</code></li>
+                    <li><strong>HTTP 地址:</strong> <code>https://{{ server_ip }}/boot/grub/grub.cfg</code></li>
+                </ul>
+                <p class="mb-0 small">适用于 UEFI 系统，支持 TFTP 和 HTTP 两种方式下载引导文件</p>
+                <p class="mb-0 small">启动菜单同时支持 TFTP 和 HTTP 两种方式下载内核/initrd</p>
+            </div>
+
+            <div class="mt-3">
+                <p class="mb-1"><strong>DHCP 配置要求:</strong></p>
+                <ul class="mb-0">
+                    <li><code>next-server {{ server_ip }};</code></li>
+                    <li>BIOS: <code>filename "pxelinux/pxelinux.0";</code></li>
+                    <li>UEFI x86_64: <code>filename "grub/shimx64.efi";</code></li>
+                    <li>UEFI x86: <code>filename "grub/shimia32.efi";</code></li>
+                    <li>UEFI ARM64: <code>filename "grub/grubaa64.efi";</code></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 容器 -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 文件类型映射
+        const fileTypeMap = {
+            'kernels': ['vmlinuz', 'bzImage', 'vmlinux'],
+            'initrds': ['initrd', 'initramfs', 'initrd.img', 'initramfs.img'],
+            'iso': ['iso']
+        };
+
+        // 当前选择的文件类型
+        let currentType = 'kernels';
+
+        // 更新允许的文件类型显示
+        function updateAllowedTypes() {
+            const typeSelect = document.getElementById('uploadType');
+            const allowedTypes = document.getElementById('allowedTypes');
+            currentType = typeSelect.value;
+            allowedTypes.textContent = fileTypeMap[currentType].join(', ');
+        }
+
+        // 显示 Toast 消息
+        function showToast(message, type = 'success') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast align-items-center text-white bg-${type} border-0`;
+            toast.setAttribute('role', 'alert');
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+            toastContainer.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+            toast.addEventListener('hidden.bs.toast', () => toast.remove());
+        }
+
+        // 上传文件
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('type', currentType);
+
+            const progressContainer = document.getElementById('progressContainer');
+            const progress = document.getElementById('uploadProgress');
+            const fileName = document.getElementById('uploadFileName');
+            const percent = document.getElementById('uploadPercent');
+
+            progressContainer.style.display = 'block';
+            fileName.textContent = file.name;
+            progress.style.width = '0%';
+            percent.textContent = '0%';
+
+            try {
+                const xhr = new XMLHttpRequest();
+
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        const pct = Math.round((e.loaded / e.total) * 100);
+                        progress.style.width = pct + '%';
+                        percent.textContent = pct + '%';
+                    }
+                });
+
+                const response = await new Promise((resolve, reject) => {
+                    xhr.onload = () => {
+                        if (xhr.status >= 200 && xhr.status < 300) {
+                            resolve(JSON.parse(xhr.responseText));
+                        } else {
+                            let msg = '上传失败';
+                            try {
+                                msg = JSON.parse(xhr.responseText).error || msg;
+                            } catch (e) {
+                                msg = xhr.statusText || msg;
+                            }
+                            reject(new Error(msg));
+                        }
+                    };
+                    xhr.onerror = () => reject(new Error('网络错误'));
+                    xhr.open('POST', '/api/upload');
+                    xhr.send(formData);
+                });
+
+                showToast(response.message, 'success');
+                setTimeout(() => location.reload(), 1000);
+            } catch (error) {
+                showToast(error.message, 'danger');
+            } finally {
+                progressContainer.style.display = 'none';
+            }
+        }
+
+        // 删除文件
+        async function deleteFile(filename, type) {
+            if (!confirm(`确定要删除文件 ${filename} 吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename, type })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    showToast(result.message, 'success');
+                    // 移除文件项
+                    const fileItem = document.querySelector(`[data-filename="${filename}"][data-type="${type}"]`);
+                    if (fileItem) {
+                        fileItem.remove();
+                    }
+                } else {
+                    showToast(result.error, 'danger');
+                }
+            } catch (error) {
+                showToast('删除失败: ' + error.message, 'danger');
+            }
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            const uploadZone = document.getElementById('uploadZone');
+            const fileInput = document.getElementById('fileInput');
+            const typeSelect = document.getElementById('uploadType');
+
+            // 更新允许的文件类型
+            typeSelect.addEventListener('change', updateAllowedTypes);
+            updateAllowedTypes();
+
+            // 点击上传区域
+            uploadZone.addEventListener('click', () => fileInput.click());
+
+            // 拖拽事件
+            uploadZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadZone.classList.add('dragover');
+            });
+
+            uploadZone.addEventListener('dragleave', () => {
+                uploadZone.classList.remove('dragover');
+            });
+
+            uploadZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadZone.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                for (const file of files) {
+                    uploadFile(file);
+                }
+            });
+
+            // 文件选择
+            fileInput.addEventListener('change', (e) => {
+                const files = e.target.files;
+                for (const file of files) {
+                    uploadFile(file);
+                }
+                fileInput.value = '';
+            });
+
+            // 删除按钮
+            document.querySelectorAll('.delete-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const filename = e.currentTarget.dataset.filename;
+                    const type = e.currentTarget.dataset.type;
+                    deleteFile(filename, type);
+                });
+            });
+        });
+    </script>
+</body>
+</html>

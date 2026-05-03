@@ -1,0 +1,48 @@
+# HTTP Boot Server - DHCP 配置模板
+# 使用前请根据实际网络环境修改配置
+
+# 全局选项
+default-lease-time 600;
+max-lease-time 7200;
+authoritative;
+
+# PXE 启动配置
+allow booting;
+allow bootp;
+
+# 子网配置
+subnet {{DHCP_SUBNET}} netmask {{DHCP_NETMASK}} {
+    range {{DHCP_RANGE_START}} {{DHCP_RANGE_END}};
+    option routers {{DHCP_GATEWAY}};
+    option domain-name-servers {{DHCP_DNS}};
+    option domain-name "local";
+
+    # PXE/HTTP Boot 配置
+    next-server {{SERVER_IP}};
+
+    # BIOS PXE 启动
+    if option arch = 00:00 {
+        filename "pxelinux/pxelinux.0";
+    }
+    # UEFI x86_64 启动
+    else if option arch = 00:07 {
+        filename "grub/shimx64.efi";
+    }
+    # UEFI x86 启动
+    else if option arch = 00:06 {
+        filename "grub/shimia32.efi";
+    }
+    # ARM64 UEFI 启动
+    else if option arch = 00:0b {
+        filename "grub/grubaa64.efi";
+    }
+    else {
+        filename "grub/grubx64.efi";
+    }
+}
+
+# 固定 IP 分配（可选）
+# host pxe-client {
+#     hardware ethernet xx:xx:xx:xx:xx:xx;
+#     fixed-address 192.168.1.10;
+# }
