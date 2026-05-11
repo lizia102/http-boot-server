@@ -13,7 +13,12 @@
       "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" fetch origin)",
       "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" checkout -b main)",
       "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" add -A)",
-      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" commit -m \"feat: 初始化项目，添加 CLAUDE.md 和完整代码\")"
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" commit -m \"feat: 初始化项目，添加 CLAUDE.md 和完整代码\")",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" pull --rebase origin main)",
+      "Bash(mkdir -p .git/hooks)",
+      "Bash(cat)",
+      "Bash(chmod +x .git/hooks/post-commit)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" commit -m \"chore: 添加 Claude Code 配置文件和自动同步 hook\")"
     ]
   }
 }

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" stash)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" add CLAUDE.md)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" rebase --continue)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" stash pop)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" push -u origin main)"
+    ]
+  }
+}
