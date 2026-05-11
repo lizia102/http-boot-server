@@ -16,6 +16,7 @@ CONFIG_DIR="${INSTALL_DIR}/config"
 LOG_DIR="/var/log/http-boot-server"
 
 # 网络配置（可根据实际情况修改）
+NETWORK_IF=""  # 指定网口，留空则自动检测（如 eth0、ens192、enp0s3 等）
 SERVER_IP=$(hostname -I | awk '{print $1}')
 DHCP_RANGE_START="192.168.1.100"
 DHCP_RANGE_END="192.168.1.200"
@@ -103,16 +104,31 @@ check_os() {
 detect_network() {
     log_step "检测网络配置"
 
-    # 获取主要网络接口
-    DEFAULT_IF=$(ip route | grep default | awk '{print $5}' | head -1)
-    if [[ -z "${DEFAULT_IF}" ]]; then
-        log_error "无法检测默认网络接口"
-        exit 1
+    # 获取网络接口：优先使用用户指定的网口
+    if [[ -n "${NETWORK_IF}" ]]; then
+        DEFAULT_IF="${NETWORK_IF}"
+        # 验证指定的网口是否存在
+        if ! ip link show "${DEFAULT_IF}" &>/dev/null; then
+            log_error "指定的网络接口 ${DEFAULT_IF} 不存在"
+            log_info "可用的网络接口:"
+            ip -br link show | grep -v lo
+            exit 1
+        fi
+        log_info "使用指定的网络接口: ${DEFAULT_IF}"
+    else
+        DEFAULT_IF=$(ip route | grep default | awk '{print $5}' | head -1)
+        if [[ -z "${DEFAULT_IF}" ]]; then
+            log_error "无法检测默认网络接口，请通过 NETWORK_IF 变量指定"
+            log_info "可用的网络接口:"
+            ip -br link show | grep -v lo
+            exit 1
+        fi
+        log_info "自动检测到默认网络接口: ${DEFAULT_IF}"
     fi
 
     SERVER_IP=$(ip -4 addr show "${DEFAULT_IF}" | grep -oP '(?<=inet\s)\d+(\.\d+){3}')
     if [[ -z "${SERVER_IP}" ]]; then
-        log_error "无法获取服务器 IP 地址"
+        log_error "无法从 ${DEFAULT_IF} 获取 IP 地址"
         exit 1
     fi
 
@@ -142,12 +158,6 @@ install_dependencies() {
     log_step "安装依赖包"
 
     if [[ "${DISTRO_FAMILY}" == "rhel" ]]; then
-        # 启用 EPEL 仓库（如果需要）
-        if ! rpm -q epel-release &>/dev/null; then
-            log_info "安装 EPEL 仓库..."
-            yum install -y epel-release || dnf install -y epel-release
-        fi
-
         PACKAGES=(
             dhcp-server
             tftp-server
