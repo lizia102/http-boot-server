@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Command git -ErrorAction SilentlyContinue)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" status)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" remote -v)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" init)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" remote add origin https://github.com/lizia102/http-boot-server.git)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" config --global user.name)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" config --global user.email)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" config --global user.name \"lizia102\")",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" config --global user.email \"lizia102@users.noreply.github.com\")",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" fetch origin)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" checkout -b main)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" add -A)",
+      "Bash(\"D:\\\\Program Files\\\\Git\\\\cmd\\\\git.exe\" commit -m \"feat: 初始化项目，添加 CLAUDE.md 和完整代码\")"
+    ]
+  }
+}
