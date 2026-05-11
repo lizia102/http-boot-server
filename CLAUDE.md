@@ -54,12 +54,12 @@ When an ISO is uploaded via the web UI, `upload_server.py` appends a GRUB `menue
 ## Service Management
 
 ```bash
-systemctl status dhcpd xinetd nginx http-boot-upload
+systemctl status dhcpd tftp.socket nginx http-boot-upload
 systemctl restart <service-name>
 journalctl -u <service-name>
 ```
 
-On Debian/Ubuntu, replace `dhcpd` with `isc-dhcp-server` and `xinetd` with `tftpd-hpa`.
+On Debian/Ubuntu, replace `dhcpd` with `isc-dhcp-server` and `tftp.socket` with `tftpd-hpa`.
 
 ## Git 工作流规范
 

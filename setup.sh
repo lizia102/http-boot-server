@@ -88,7 +88,7 @@ check_os() {
             exit 1
         fi
         DHCP_SERVICE="dhcpd"
-        TFTP_SERVICE="xinetd"
+        TFTP_SERVICE="tftp.socket"
     elif [[ -f /etc/debian_version ]] || command -v apt-get &>/dev/null; then
         DISTRO_FAMILY="debian"
         DEBIAN_VERSION=$(cat /etc/debian_version 2>/dev/null || echo "unknown")
@@ -161,7 +161,6 @@ install_dependencies() {
         PACKAGES=(
             dhcp-server
             tftp-server
-            xinetd
             nginx
             python3
             python3-pip
@@ -294,26 +293,11 @@ configure_tftp() {
     log_step "配置 TFTP 服务器"
 
     if [[ "${DISTRO_FAMILY}" == "rhel" ]]; then
-        # 备份原配置
-        if [[ -f /etc/xinetd.d/tftp ]]; then
-            cp /etc/xinetd.d/tftp /etc/xinetd.d/tftp.bak
-        fi
-
-        # 配置 xinetd
-        cat > /etc/xinetd.d/tftp << EOF
-service tftp
-{
-    socket_type = dgram
-    protocol = udp
-    wait = yes
-    user = root
-    server = /usr/sbin/in.tftpd
-    server_args = -s ${BOOT_DIR} -c
-    disable = no
-    per_source = 11
-    cps = 100 2
-    flags = IPv4
-}
+        # 配置 TFTP 根目录（systemd tftp.socket 读取此文件）
+        cat > /etc/sysconfig/tftpd << EOF
+TFTP_ADDRESS=0.0.0.0:69
+TFTP_OPTIONS="--secure --create"
+TFTP_DIRECTORY=${BOOT_DIR}
 EOF
     else
         # Ubuntu/Debian: tftpd-hpa

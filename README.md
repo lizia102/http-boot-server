@@ -104,7 +104,7 @@ sudo ./setup.sh
 systemctl status dhcpd
 
 # TFTP 服务
-systemctl status xinetd
+systemctl status tftp.socket
 
 # Nginx 服务
 systemctl status nginx
@@ -117,7 +117,7 @@ systemctl status http-boot-upload
 
 ```bash
 # 重启所有服务
-systemctl restart dhcpd xinetd nginx http-boot-upload
+systemctl restart dhcpd tftp.socket nginx http-boot-upload
 
 # 重启单个服务
 systemctl restart nginx
@@ -230,7 +230,7 @@ Ubuntu 启动参数说明：
 cat /etc/dhcp/dhcpd.conf
 
 # 检查 TFTP 服务
-systemctl status xinetd
+systemctl status tftp.socket
 
 # 检查 Nginx 服务
 systemctl status nginx
@@ -303,8 +303,11 @@ journalctl -u dhcpd
 ### TFTP 服务无法启动
 
 ```bash
-# 检查 xinetd 配置
-cat /etc/xinetd.d/tftp
+# 检查 TFTP 配置（RHEL）
+cat /etc/sysconfig/tftpd
+
+# 检查 TFTP 配置（Debian/Ubuntu）
+cat /etc/default/tftpd-hpa
 
 # 检查端口
 ss -tulnp | grep :69
