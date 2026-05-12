@@ -168,7 +168,6 @@ install_dependencies() {
             firewalld
             wget
             curl
-            p7zip
             libarchive
         )
 
@@ -195,7 +194,6 @@ install_dependencies() {
             ufw
             wget
             curl
-            p7zip-full
             libarchive-tools
         )
 

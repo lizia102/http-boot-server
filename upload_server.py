@@ -102,10 +102,10 @@ def extract_iso_repo(iso_filename):
 
     os.makedirs(repo_dir, exist_ok=True)
 
-    # 尝试用 7z 解压
+    # 使用 bsdtar 解压 ISO
     try:
         result = subprocess.run(
-            ['7z', 'x', f'-o{repo_dir}', iso_path, '-y'],
+            ['bsdtar', '-xf', iso_path, '-C', repo_dir],
             capture_output=True, text=True, timeout=600
         )
         if result.returncode == 0:
@@ -114,21 +114,9 @@ def extract_iso_repo(iso_filename):
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
-    # 回退到 bsdtar
-    try:
-        result = subprocess.run(
-            ['bsdtar', '-xf', iso_path, '-C', repo_dir],
-            capture_output=True, text=True, timeout=600
-        )
-        if result.returncode == 0:
-            logger.info(f"ISO 解压成功 (bsdtar): {iso_filename} -> {repo_dir}")
-            return repo_dir
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-
     # 解压失败，清理空目录
     shutil.rmtree(repo_dir, ignore_errors=True)
-    logger.error(f"ISO 解压失败: {iso_filename}，需要安装 p7zip-full 或 bsdtar")
+    logger.error(f"ISO 解压失败: {iso_filename}，需要安装 libarchive (bsdtar)")
     return None
 
 def extract_iso_repo_async(iso_filename):
